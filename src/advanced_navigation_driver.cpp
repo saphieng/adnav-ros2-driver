@@ -110,7 +110,7 @@ int main(int argc, char * argv[])
 	// for(int i = 0; i < argc; i++){
 	// 	RCLCPP_INFO(node->get_logger(), "argv[%d}: %s\n", i, argv[i]);
 	// }
-	RollingStdDev rstd_acc_x(1000); 
+	RollingStdDev rstd_acc_x(1000);
 	RollingStdDev rstd_acc_y(1000); 
 	RollingStdDev rstd_acc_z(1000); 
 	RollingStdDev rstd_gyr_x(1000); 
@@ -323,7 +323,6 @@ int main(int argc, char * argv[])
 			// Decode all the packets in the buffer 
 			while ((an_packet = an_packet_decode(&an_decoder)) != NULL)
 			{				
-				
 				// System State Packet Decoding
 				if (an_packet->id == packet_id_system_state)
 				{
@@ -362,9 +361,8 @@ int main(int argc, char * argv[])
 						gnss_fix_type_msgs.data = gnssFixType.str();
 
 						// NAVSATFIX
-						// nav_sat_fix_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
-						// nav_sat_fix_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
-						nav_sat_fix_msg.header.stamp = node->now();
+						nav_sat_fix_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
+						nav_sat_fix_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
 
 						if ((system_state_packet.filter_status.b.gnss_fix_type == 1) ||
 							(system_state_packet.filter_status.b.gnss_fix_type == 2))
@@ -402,16 +400,14 @@ int main(int argc, char * argv[])
 						twist_msg.angular.z=system_state_packet.angular_velocity[2];
 
 						// IMU
-						// imu_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
-						// imu_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
-						imu_msg.header.stamp = node->now();
+						imu_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
+						imu_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
 
 						// Using the RPY orientation as done by cosama
 						orientation.setRPY(
 							-system_state_packet.orientation[0],
 							system_state_packet.orientation[1],
 							-system_state_packet.orientation[2]
-							// PI/2.0f - system_state_packet.orientation[2] //REP 103
 						);
 
         				// double imuRoll, imuPitch, imuYaw;
@@ -429,23 +425,6 @@ int main(int argc, char * argv[])
 						pose_msg.orientation.y = orientation[1];
 						pose_msg.orientation.z = orientation[2];
 						pose_msg.orientation.w = orientation[3];
-
-						//The IMU angular velocities is now coming from the RAW Sensors Accelerometer 
-						// imu_msg.angular_velocity.x=system_state_packet.angular_velocity[0]; // These the same as the TWIST msg values
-						// imu_msg.angular_velocity.y=system_state_packet.angular_velocity[1];
-						// imu_msg.angular_velocity.z=system_state_packet.angular_velocity[2];
-
-						// rstd_gyr_x.add_value(system_state_packet.angular_velocity[0]);
-						// rstd_gyr_y.add_value(system_state_packet.angular_velocity[1]);
-						// rstd_gyr_z.add_value(system_state_packet.angular_velocity[2]);
-						
-						// std::cout << "STD Gryo: " << std::endl;
-						// std::cout << "x: " << rstd_gyr_x.standard_deviation() << "\ny: " << rstd_gyr_y.standard_deviation() << "\nz: " << rstd_gyr_z.standard_deviation() << std::endl << std::endl;
-
-						//The IMU linear acceleration is now coming from the RAW Sensors Accelerometer 
-						//imu_msg.linear_acceleration.x=system_state_packet.body_acceleration[0];
-						//imu_msg.linear_acceleration.y=system_state_packet.body_acceleration[1];
-						//imu_msg.linear_acceleration.z=system_state_packet.body_acceleration[2];
 
 						// SYSTEM STATUS
 						system_status_msg.message = "";
@@ -641,16 +620,14 @@ int main(int argc, char * argv[])
 				if(an_packet->id == packet_id_raw_sensors){
 					if(decode_raw_sensors_packet(&raw_sensors_packet, an_packet) == 0){
 						// Time Stamp from the System State Packet
-						// magnetic_field_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
-						// barometric_pressure_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
-						// temperature_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
-						// magnetic_field_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
-						// barometric_pressure_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
-						// temperature_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
-					
-						magnetic_field_msg.header.stamp = node->now();
-						barometric_pressure_msg.header.stamp = node->now();
-						temperature_msg.header.stamp = node->now();
+						magnetic_field_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
+						magnetic_field_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
+
+						barometric_pressure_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
+						barometric_pressure_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
+
+						temperature_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
+						temperature_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
 
 						// RAW MAGNETICFIELD VALUE FROM IMU
 						magnetic_field_msg.magnetic_field.x = raw_sensors_packet.magnetometers[0];
