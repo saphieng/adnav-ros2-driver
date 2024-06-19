@@ -37,7 +37,8 @@
 #include <math.h>
 #include <unistd.h>
 #include <time.h>
-#include <tf2/LinearMath/Quaternion.h>
+#include "tf2/LinearMath/Quaternion.h"
+#include <tf2_eigen/tf2_eigen.hpp>
 #include "NTRIP_Client/NTRIP/ntripclient.h"
 #include "rs232/rs232.h"
 #include "an_packet_protocol.h"
@@ -60,17 +61,71 @@ const double PI = 4*atan(1);
 //RCLCPP_INFO(node->get_logger(), "INFORMATION MSG PRINT");
 //RCLCPP_ERROR(node->get_logger(), "ERROR MSG PRINT");
 
+#include <iostream>
+#include <deque>
+#include <cmath>
+
+class RollingStdDev {
+public:
+    RollingStdDev(size_t window_size) : window_size(window_size), sum(0), sum_sq(0) {}
+
+    void add_value(double value) {
+        values.push_back(value);
+        sum += value;
+        sum_sq += value * value;
+
+        if (values.size() > window_size) {
+            double old_value = values.front();
+            values.pop_front();
+            sum -= old_value;
+            sum_sq -= old_value * old_value;
+        }
+    }
+
+    double mean() const {
+        return sum / values.size();
+    }
+
+    double standard_deviation() const {
+        if (values.size() < 2) return 0.0; // not enough values to compute standard deviation
+        double mean_val = mean();
+        double variance = (sum_sq / values.size()) - (mean_val * mean_val);
+        return std::sqrt(variance);
+    }
+
+	private:
+		std::deque<double> values;
+		size_t window_size;
+		double sum;
+		double sum_sq;
+};
+
 int main(int argc, char * argv[])
 {
 	rclcpp::init(argc, argv);
 	auto node = std::make_shared<rclcpp::Node>("AdNav_Node");
 	
-	/* For Debugging
-	RCLCPP_INFO(node->get_logger(), "argc: %d\n", argc);
-	for(int i = 0; i < argc; i++){
-		RCLCPP_INFO(node->get_logger(), "argv[%d}: %s\n", i, argv[i]);
-	}
-	*/
+	//For Debugging
+	// RCLCPP_INFO(node->get_logger(), "argc: %d\n", argc);
+	// for(int i = 0; i < argc; i++){
+	// 	RCLCPP_INFO(node->get_logger(), "argv[%d}: %s\n", i, argv[i]);
+	// }
+	RollingStdDev rstd_acc_x(1000); 
+	RollingStdDev rstd_acc_y(1000); 
+	RollingStdDev rstd_acc_z(1000); 
+	RollingStdDev rstd_gyr_x(1000); 
+	RollingStdDev rstd_gyr_y(1000); 
+	RollingStdDev rstd_gyr_z(1000); 
+
+    // Define the specific value to match
+    const char* specific_value = "--ros-args";
+
+    // Check if there are any arguments and if the last argument matches the specific value
+    if (argc > 1 && strcmp(argv[argc - 1], specific_value) == 0) {
+        // Reduce argc by one to exclude the last argument
+        argc -= 1;
+    }
+
 	if(argc == 1){
 		printf("usage: ros2 run package_name executable_name [baud_rate] [comm_port]\npackage_name     Name of the ROS package\nexecutable_name  Name of the executable\nbaud_rate        The Baud rate configured on the device. Default 115200\ncomm_port        The COM port of the connected device. Default /dev/ttyUSB0\n");
 		exit(EXIT_FAILURE);	
@@ -85,20 +140,13 @@ int main(int argc, char * argv[])
 	char filename[32];
 	time_t rawtime;
 	struct tm * timeinfo;
-	int write_counter = 0;
+	// int write_counter = 0;
 
 	// Set up the COM port
 	int baud_rate;
 	std::string com_port;
 
 	// String ID for all publishers
-	std::string imu_frame_id;
-	std::string nav_sat_frame_id;
-	std::string rawsensors_magnetometer_frame_id;
-	std::string barometric_pressure_frame_id;
-	std::string temperature_frame_id;
-	std::string gnss_fix_type_id;
-	std::string topic_prefix;
 	std::stringstream gnssFixType;
 	tf2::Quaternion orientation;
 	std_msgs::msg::String gnss_fix_type_msgs;
@@ -153,15 +201,15 @@ int main(int argc, char * argv[])
 	imu_msg.orientation.y = 0.0;
 	imu_msg.orientation.z = 0.0;
 	imu_msg.orientation.w = 0.0;
-	imu_msg.orientation_covariance = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
+	imu_msg.orientation_covariance = {0.01,0.0,0.0,0.0,0.01,0.0,0.0,0.0,0.01};
 	imu_msg.angular_velocity.x = 0.0;
 	imu_msg.angular_velocity.y = 0.0;
 	imu_msg.angular_velocity.z = 0.0;
-	imu_msg.angular_velocity_covariance = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}; // fixed
+	imu_msg.angular_velocity_covariance = {0.01,0.0,0.0,0.0,0.01,0.0,0.0,0.0,0.01}; // fixed
 	imu_msg.linear_acceleration.x = 0.0;
 	imu_msg.linear_acceleration.y = 0.0;
 	imu_msg.linear_acceleration.z = 0.0;
-	imu_msg.linear_acceleration_covariance = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}; // fixed
+	imu_msg.linear_acceleration_covariance = {0.01,0.0,0.0,0.0,0.01,0.0,0.0,0.0,0.01}; // fixed
 
 	// NavSatFix sensor_msgs/NavSatFix 
 	sensor_msgs::msg::NavSatFix nav_sat_fix_msg;
@@ -227,9 +275,8 @@ int main(int argc, char * argv[])
   	// Intialising for the log files
 	rawtime = time(NULL);
 	timeinfo = localtime(&rawtime);
-	sprintf(filename, "Log_%02d-%02d-%02d_%02d-%02d-%02d.anpp", timeinfo->tm_year-100, timeinfo->tm_mon+1, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
-	log_file = fopen(filename, "wb");
-  
+	// sprintf(filename, "Log_%02d-%02d-%02d_%02d-%02d-%02d.anpp", timeinfo->tm_year-100, timeinfo->tm_mon+1, timeinfo->tm_mday, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+	// log_file = fopen(filename, "wb");
   
   	// Initialise packets
 	an_decoder_t an_decoder;
@@ -269,7 +316,7 @@ int main(int argc, char * argv[])
 		std::stringstream ss;
 		if ((bytes_received = PollComport(an_decoder_pointer(&an_decoder), an_decoder_size(&an_decoder))) > 0)
 		{
-			fwrite(an_decoder_pointer(&an_decoder), sizeof(uint8_t), bytes_received, log_file);
+			// fwrite(an_decoder_pointer(&an_decoder), sizeof(uint8_t), bytes_received, log_file);
 			// Increment the decode buffer length by the number of bytes received 
 			an_decoder_increment(&an_decoder, bytes_received);
 
@@ -315,9 +362,10 @@ int main(int argc, char * argv[])
 						gnss_fix_type_msgs.data = gnssFixType.str();
 
 						// NAVSATFIX
-						nav_sat_fix_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
-						nav_sat_fix_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
-						nav_sat_fix_msg.header.frame_id=nav_sat_frame_id;
+						// nav_sat_fix_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
+						// nav_sat_fix_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
+						nav_sat_fix_msg.header.stamp = node->now();
+
 						if ((system_state_packet.filter_status.b.gnss_fix_type == 1) ||
 							(system_state_packet.filter_status.b.gnss_fix_type == 2))
 						{
@@ -345,7 +393,6 @@ int main(int argc, char * argv[])
 							0.0, pow(system_state_packet.standard_deviation[0],2), 0.0,
 							0.0, 0.0, pow(system_state_packet.standard_deviation[2],2)};						
 
-
 						// TWIST
 						twist_msg.linear.x=system_state_packet.velocity[0];
 						twist_msg.linear.y=system_state_packet.velocity[1];
@@ -354,17 +401,24 @@ int main(int argc, char * argv[])
 						twist_msg.angular.y=system_state_packet.angular_velocity[1];
 						twist_msg.angular.z=system_state_packet.angular_velocity[2];
 
-
 						// IMU
-						imu_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
-						imu_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
-						imu_msg.header.frame_id=imu_frame_id;
+						// imu_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
+						// imu_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
+						imu_msg.header.stamp = node->now();
+
 						// Using the RPY orientation as done by cosama
 						orientation.setRPY(
-							system_state_packet.orientation[0],
+							-system_state_packet.orientation[0],
 							system_state_packet.orientation[1],
-							PI/2.0f - system_state_packet.orientation[2] //REP 103
+							-system_state_packet.orientation[2]
+							// PI/2.0f - system_state_packet.orientation[2] //REP 103
 						);
+
+        				// double imuRoll, imuPitch, imuYaw;
+						// tf2::Matrix3x3(orientation).getRPY(imuRoll, imuPitch, imuYaw);
+						// std::cout << "IMU roll pitch yaw: " << std::endl;
+						// std::cout << "roll: " << imuRoll*180.0f/M_PI << "\npitch: " << imuPitch*180.0f/M_PI << "\nyaw: " << imuYaw*180.0f/M_PI << std::endl << std::endl;
+
 						imu_msg.orientation.x = orientation[0];
 						imu_msg.orientation.y = orientation[1];
 						imu_msg.orientation.z = orientation[2];
@@ -376,9 +430,17 @@ int main(int argc, char * argv[])
 						pose_msg.orientation.z = orientation[2];
 						pose_msg.orientation.w = orientation[3];
 
-						imu_msg.angular_velocity.x=system_state_packet.angular_velocity[0]; // These the same as the TWIST msg values
-						imu_msg.angular_velocity.y=system_state_packet.angular_velocity[1];
-						imu_msg.angular_velocity.z=system_state_packet.angular_velocity[2];
+						//The IMU angular velocities is now coming from the RAW Sensors Accelerometer 
+						// imu_msg.angular_velocity.x=system_state_packet.angular_velocity[0]; // These the same as the TWIST msg values
+						// imu_msg.angular_velocity.y=system_state_packet.angular_velocity[1];
+						// imu_msg.angular_velocity.z=system_state_packet.angular_velocity[2];
+
+						// rstd_gyr_x.add_value(system_state_packet.angular_velocity[0]);
+						// rstd_gyr_y.add_value(system_state_packet.angular_velocity[1]);
+						// rstd_gyr_z.add_value(system_state_packet.angular_velocity[2]);
+						
+						// std::cout << "STD Gryo: " << std::endl;
+						// std::cout << "x: " << rstd_gyr_x.standard_deviation() << "\ny: " << rstd_gyr_y.standard_deviation() << "\nz: " << rstd_gyr_z.standard_deviation() << std::endl << std::endl;
 
 						//The IMU linear acceleration is now coming from the RAW Sensors Accelerometer 
 						//imu_msg.linear_acceleration.x=system_state_packet.body_acceleration[0];
@@ -579,28 +641,48 @@ int main(int argc, char * argv[])
 				if(an_packet->id == packet_id_raw_sensors){
 					if(decode_raw_sensors_packet(&raw_sensors_packet, an_packet) == 0){
 						// Time Stamp from the System State Packet
-						magnetic_field_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
-						barometric_pressure_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
-						temperature_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
-						magnetic_field_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
-						barometric_pressure_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
-						temperature_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
+						// magnetic_field_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
+						// barometric_pressure_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
+						// temperature_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
+						// magnetic_field_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
+						// barometric_pressure_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
+						// temperature_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
 					
+						magnetic_field_msg.header.stamp = node->now();
+						barometric_pressure_msg.header.stamp = node->now();
+						temperature_msg.header.stamp = node->now();
+
 						// RAW MAGNETICFIELD VALUE FROM IMU
-						magnetic_field_msg.header.frame_id = rawsensors_magnetometer_frame_id;
 						magnetic_field_msg.magnetic_field.x = raw_sensors_packet.magnetometers[0];
 						magnetic_field_msg.magnetic_field.y = raw_sensors_packet.magnetometers[1];
 						magnetic_field_msg.magnetic_field.z = raw_sensors_packet.magnetometers[2];
+			
+						imu_msg.angular_velocity.x=raw_sensors_packet.gyroscopes[0]; // These the same as the TWIST msg values
+						imu_msg.angular_velocity.y=raw_sensors_packet.gyroscopes[1];
+						imu_msg.angular_velocity.z=raw_sensors_packet.gyroscopes[2];
+
+						rstd_gyr_x.add_value(raw_sensors_packet.gyroscopes[0]);
+						rstd_gyr_y.add_value(raw_sensors_packet.gyroscopes[1]);
+						rstd_gyr_z.add_value(raw_sensors_packet.gyroscopes[2]);
+						
+						// std::cout << "STD Gryo: " << (rstd_gyr_x.standard_deviation() + rstd_gyr_y.standard_deviation() + rstd_gyr_z.standard_deviation())/3.0f << std::endl;
+						// std::cout << "x: " << rstd_gyr_x.standard_deviation() << "\ny: " << rstd_gyr_y.standard_deviation() << "\nz: " << rstd_gyr_z.standard_deviation() << std::endl << std::endl;
+
 						imu_msg.linear_acceleration.x = raw_sensors_packet.accelerometers[0];
 						imu_msg.linear_acceleration.y = raw_sensors_packet.accelerometers[1];
 						imu_msg.linear_acceleration.z = raw_sensors_packet.accelerometers[2];
 
+						rstd_acc_x.add_value(raw_sensors_packet.accelerometers[0]);
+						rstd_acc_y.add_value(raw_sensors_packet.accelerometers[1]);
+						rstd_acc_z.add_value(raw_sensors_packet.accelerometers[2]);
+						
+						// std::cout << "STD Acc: " << (rstd_acc_x.standard_deviation() + rstd_acc_y.standard_deviation() + rstd_acc_z.standard_deviation())/3.0f << std::endl;
+						// std::cout << "x: " << rstd_acc_x.standard_deviation() << "\ny: " << rstd_acc_y.standard_deviation() << "\nz: " << rstd_acc_z.standard_deviation() << std::endl << std::endl;
+
 						// BAROMETRIC PRESSURE
-						barometric_pressure_msg.header.frame_id = barometric_pressure_frame_id;
 						barometric_pressure_msg.fluid_pressure = raw_sensors_packet.pressure;
 
 						// TEMPERATURE
-						temperature_msg.header.frame_id = rawsensors_magnetometer_frame_id;
 						temperature_msg.temperature = raw_sensors_packet.pressure_temperature;
 					}
 				}
@@ -622,10 +704,10 @@ int main(int argc, char * argv[])
 			}
 			
 			// Write the logs to the logger reset when counter is full
-			if(write_counter++ >= 100){
-				fflush(log_file);
-				write_counter = 0;
-			}
+			// if(write_counter++ >= 100){
+			// 	fflush(log_file);
+			// 	write_counter = 0;
+			// }
 		}
 		
 		if(state == 0){
