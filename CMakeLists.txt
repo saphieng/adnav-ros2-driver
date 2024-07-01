@@ -19,10 +19,15 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_eigen REQUIRED)
+
+# # Find some less ROS-y packages
+list(APPEND CMAKE_MODULE_PATH "/usr/share/cmake/geographiclib/")
+find_package(GeographicLib REQUIRED)
 
 
 add_executable(adnav_driver src/advanced_navigation_driver.cpp src/rs232/rs232.c src/an_packet_protocol.c src/spatial_packets.c src/NTRIP_Client/NTRIP/ntripclient.c)
@@ -31,10 +36,21 @@ ament_target_dependencies(
   rclcpp 
   std_msgs 
   sensor_msgs 
+  nav_msgs
   diagnostic_msgs 
   geometry_msgs 
   tf2_ros
   tf2_eigen
+)
+
+# Add the includes
+include_directories(
+  ${GeographicLib_INCLUDE_DIRS}
+)
+
+target_link_libraries(${NODE_NAME}
+  adnav_driver
+  ${GeographicLib_LIBRARIES}
 )
 
 install(

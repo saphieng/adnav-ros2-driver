@@ -38,6 +38,7 @@
 #include <unistd.h>
 #include <time.h>
 #include "tf2/LinearMath/Quaternion.h"
+#include "tf2/convert.h"
 #include <tf2_eigen/tf2_eigen.hpp>
 #include "NTRIP_Client/NTRIP/ntripclient.h"
 #include "rs232/rs232.h"
@@ -54,6 +55,10 @@
 #include <sensor_msgs/msg/magnetic_field.hpp>
 #include <sensor_msgs/msg/temperature.hpp>
 #include <sensor_msgs/msg/fluid_pressure.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+
+#include <GeographicLib/LocalCartesian.hpp>
+
 #define RADIANS_TO_DEGREES (180.0/M_PI)
 const double PI = 4*atan(1);
 
@@ -116,6 +121,23 @@ int main(int argc, char * argv[])
 	RollingStdDev rstd_gyr_x(1000); 
 	RollingStdDev rstd_gyr_y(1000); 
 	RollingStdDev rstd_gyr_z(1000); 
+
+	GeographicLib::LocalCartesian geo_converter;
+	bool initENU = false;
+
+	RollingStdDev rstd_twist_linVel_x(1000);
+	RollingStdDev rstd_twist_linVel_y(1000); 
+	RollingStdDev rstd_twist_linVel_z(1000); 
+	RollingStdDev rstd_twist_angVel_x(1000); 
+	RollingStdDev rstd_twist_angVel_y(1000); 
+	RollingStdDev rstd_twist_angVel_z(1000); 
+
+	RollingStdDev rstd_pose_pos_x(1000);
+	RollingStdDev rstd_pose_pos_y(1000); 
+	RollingStdDev rstd_pose_pos_z(1000); 
+	RollingStdDev rstd_pose_ang_x(1000); 
+	RollingStdDev rstd_pose_ang_y(1000); 
+	RollingStdDev rstd_pose_ang_z(1000);
 
     // Define the specific value to match
     const char* specific_value = "--ros-args";
@@ -190,6 +212,7 @@ int main(int argc, char * argv[])
 	auto system_status_pub = node->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/SystemStatus", 10);
 	auto filter_status_pub = node->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/FilterStatus", 10);
 	auto gnss_fix_type_pub = node->create_publisher<std_msgs::msg::String>("/GNSSFixType", 10);
+	auto nav_odom_pub = node->create_publisher<nav_msgs::msg::Odometry>("/NavOdom", 10);
 	rclcpp::Rate loop_rate(10);
 
 	// IMU sensor_msgs/Imu
@@ -201,15 +224,15 @@ int main(int argc, char * argv[])
 	imu_msg.orientation.y = 0.0;
 	imu_msg.orientation.z = 0.0;
 	imu_msg.orientation.w = 0.0;
-	imu_msg.orientation_covariance = {0.01,0.0,0.0,0.0,0.01,0.0,0.0,0.0,0.01};
+	imu_msg.orientation_covariance = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
 	imu_msg.angular_velocity.x = 0.0;
 	imu_msg.angular_velocity.y = 0.0;
 	imu_msg.angular_velocity.z = 0.0;
-	imu_msg.angular_velocity_covariance = {0.01,0.0,0.0,0.0,0.01,0.0,0.0,0.0,0.01}; // fixed
+	imu_msg.angular_velocity_covariance = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}; // fixed
 	imu_msg.linear_acceleration.x = 0.0;
 	imu_msg.linear_acceleration.y = 0.0;
 	imu_msg.linear_acceleration.z = 0.0;
-	imu_msg.linear_acceleration_covariance = {0.01,0.0,0.0,0.0,0.01,0.0,0.0,0.0,0.01}; // fixed
+	imu_msg.linear_acceleration_covariance = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}; // fixed
 
 	// NavSatFix sensor_msgs/NavSatFix 
 	sensor_msgs::msg::NavSatFix nav_sat_fix_msg;
@@ -260,6 +283,26 @@ int main(int argc, char * argv[])
 	pose_msg.orientation.z=0.0;
 	pose_msg.orientation.w=0.0;
 
+	// Odom_msgs/NavOdom
+	double cov[36] = {
+        0.1, 0.0, 0.0, 0.0, 0.0, 0.0,  // Row 1
+        0.0, 0.1, 0.0, 0.0, 0.0, 0.0,  // Row 2
+        0.0, 0.0, 0.1, 0.0, 0.0, 0.0,  // Row 3
+        0.0, 0.0, 0.0, 0.1, 0.0, 0.0,  // Row 4
+        0.0, 0.0, 0.0, 0.0, 0.1, 0.0,  // Row 5
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.1   // Row 6
+    };
+
+	nav_msgs::msg::Odometry odom_msg;
+	odom_msg.header.stamp.sec = 0;
+	odom_msg.header.stamp.nanosec = 0;
+	odom_msg.header.frame_id = "navodom";
+	odom_msg.child_frame_id = "imu_link";
+	odom_msg.pose.pose = pose_msg;
+	std::copy(std::begin(cov), std::end(cov), std::begin(odom_msg.pose.covariance));
+	odom_msg.twist.twist = twist_msg;
+	std::copy(std::begin(cov), std::end(cov), std::begin(odom_msg.twist.covariance));
+
 	// DiagnosticsStatus messages for System Status
 	diagnostic_msgs::msg::DiagnosticStatus system_status_msg;
 	system_status_msg.level = 0; // default OK state
@@ -285,6 +328,7 @@ int main(int argc, char * argv[])
 	quaternion_orientation_standard_deviation_packet_t quaternion_orientation_standard_deviation_packet;
 	raw_sensors_packet_t raw_sensors_packet;
 	ecef_position_packet_t ecef_position_packet;
+	raw_gnss_packet_t raw_gnss_packet;
 
 	if(state == 0){
 		if (OpenComport(args.serdevice, args.baud)){
@@ -387,9 +431,11 @@ int main(int argc, char * argv[])
 						nav_sat_fix_msg.latitude=system_state_packet.latitude * RADIANS_TO_DEGREES;
 						nav_sat_fix_msg.longitude=system_state_packet.longitude * RADIANS_TO_DEGREES;
 						nav_sat_fix_msg.altitude=system_state_packet.height;
-						nav_sat_fix_msg.position_covariance={pow(system_state_packet.standard_deviation[1],2), 0.0, 0.0,
-							0.0, pow(system_state_packet.standard_deviation[0],2), 0.0,
-							0.0, 0.0, pow(system_state_packet.standard_deviation[2],2)};						
+
+						nav_sat_fix_msg.position_covariance =
+							{	pow(system_state_packet.standard_deviation[1],2), 0.0, 0.0,
+								0.0, pow(system_state_packet.standard_deviation[0],2), 0.0,
+								0.0, 0.0, pow(system_state_packet.standard_deviation[2],2)};						
 
 						// TWIST
 						twist_msg.linear.x=system_state_packet.velocity[0];
@@ -399,15 +445,88 @@ int main(int argc, char * argv[])
 						twist_msg.angular.y=system_state_packet.angular_velocity[1];
 						twist_msg.angular.z=system_state_packet.angular_velocity[2];
 
+						// NNAV ODOM
+						odom_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
+						odom_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
+						odom_msg.child_frame_id = "";
+ 
+						// Report in ENU instead of NED
+						odom_msg.twist.twist.linear.x = system_state_packet.velocity[1];
+						odom_msg.twist.twist.linear.y = system_state_packet.velocity[0];
+						odom_msg.twist.twist.linear.z = -system_state_packet.velocity[2];
+						odom_msg.twist.twist.angular.x = system_state_packet.angular_velocity[1];
+						odom_msg.twist.twist.angular.y = system_state_packet.angular_velocity[0];
+						odom_msg.twist.twist.angular.z = -system_state_packet.angular_velocity[2];
+
+						rstd_twist_linVel_x.add_value(odom_msg.twist.twist.linear.x);
+						rstd_twist_linVel_y.add_value(odom_msg.twist.twist.linear.y); 
+						rstd_twist_linVel_z.add_value(odom_msg.twist.twist.linear.z); 
+						rstd_twist_angVel_x.add_value(odom_msg.twist.twist.angular.x); 
+						rstd_twist_angVel_y.add_value(odom_msg.twist.twist.angular.y); 
+						rstd_twist_angVel_z.add_value(odom_msg.twist.twist.angular.z); 
+
+						odom_msg.twist.covariance[0]  = pow(rstd_twist_linVel_x.standard_deviation(), 2.0f);
+						odom_msg.twist.covariance[7]  = pow(rstd_twist_linVel_y.standard_deviation(), 2.0f);
+						odom_msg.twist.covariance[14] = pow(rstd_twist_linVel_z.standard_deviation(), 2.0f);
+						odom_msg.twist.covariance[21] = pow(rstd_twist_angVel_x.standard_deviation(), 2.0f);
+						odom_msg.twist.covariance[28] = pow(rstd_twist_angVel_y.standard_deviation(), 2.0f);
+						odom_msg.twist.covariance[35] = pow(rstd_twist_angVel_z.standard_deviation(), 2.0f);
+
+
+						// Nav Odom	NEEDS WORK
+						double x, y, z;
+						// LLA->ENU, better accuacy than gpsTools especially for z value
+						Eigen::Vector3d lla(nav_sat_fix_msg.latitude, nav_sat_fix_msg.longitude, nav_sat_fix_msg.altitude);
+
+						if (!initENU) 
+						{
+							std::cout << "INIT GPS Geo Converter: " << lla(0) << ", " <<  lla(1) << ", " << lla(2) << std::endl; 
+							geo_converter.Reset(lla(0), lla(1), lla(2));
+							initENU = true;
+						}
+
+						geo_converter.Forward(lla(0), lla(1), lla(2), x, y, z);
+						Eigen::Vector3d enu(x, y, z);
+
+						// std::cout << "GPS ENU: " << enu(0) << ", " <<  enu(1) << ", " << enu(2) << std::endl; 
+
+						odom_msg.pose.pose.position.x = enu(0);
+						odom_msg.pose.pose.position.y = enu(1);
+						odom_msg.pose.pose.position.z = enu(2);
+
+						tf2::Quaternion q;
+						q.setRPY(0, 0, 2*PI - system_state_packet.orientation[2]);
+
+						//std::cout << "INS RPY: " << system_state_packet.orientation[0] << ", " <<  system_state_packet.orientation[1] << ", " << 2*PI - system_state_packet.orientation[2] << std::endl;
+
+						odom_msg.pose.pose.orientation.x = q.getAxis().getX();
+						odom_msg.pose.pose.orientation.y = q.getAxis().getY();
+						odom_msg.pose.pose.orientation.z = q.getAxis().getZ();
+						odom_msg.pose.pose.orientation.w = q.getW();
+
+						rstd_pose_pos_x.add_value(odom_msg.pose.pose.position.x);
+						rstd_pose_pos_y.add_value(odom_msg.pose.pose.position.y);
+						rstd_pose_pos_z.add_value(odom_msg.pose.pose.position.z);
+						rstd_pose_ang_x.add_value(0.0f);
+						rstd_pose_ang_y.add_value(0.0f);
+						rstd_pose_ang_z.add_value(2*PI - system_state_packet.orientation[2]);
+
+						odom_msg.pose.covariance[0]  = pow(rstd_pose_pos_x.standard_deviation(), 2.0f);
+						odom_msg.pose.covariance[7]  = pow(rstd_pose_pos_y.standard_deviation(), 2.0f);
+						odom_msg.pose.covariance[14] = pow(rstd_pose_pos_z.standard_deviation(), 2.0f);
+						odom_msg.pose.covariance[21] = pow(rstd_pose_ang_x.standard_deviation(), 2.0f);
+						odom_msg.pose.covariance[28] = pow(rstd_pose_ang_y.standard_deviation(), 2.0f);
+						odom_msg.pose.covariance[35] = pow(rstd_pose_ang_z.standard_deviation(), 2.0f);
+
 						// IMU
 						imu_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
 						imu_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
 
 						// Using the RPY orientation as done by cosama
 						orientation.setRPY(
-							-system_state_packet.orientation[0],
+							system_state_packet.orientation[0],
 							system_state_packet.orientation[1],
-							-system_state_packet.orientation[2]
+							system_state_packet.orientation[2]
 						);
 
         				// double imuRoll, imuPitch, imuYaw;
@@ -678,6 +797,7 @@ int main(int argc, char * argv[])
 				temperature_pub->publish(temperature_msg);
 				pose_pub->publish(pose_msg);
 				gnss_fix_type_pub->publish(gnss_fix_type_msgs);
+				nav_odom_pub->publish(odom_msg);
 			}
 			
 			// Write the logs to the logger reset when counter is full
