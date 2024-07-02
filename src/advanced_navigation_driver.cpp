@@ -56,6 +56,7 @@
 #include <sensor_msgs/msg/temperature.hpp>
 #include <sensor_msgs/msg/fluid_pressure.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <nav_msgs/msg/path.hpp>
 
 #include <GeographicLib/LocalCartesian.hpp>
 
@@ -124,20 +125,6 @@ int main(int argc, char * argv[])
 
 	GeographicLib::LocalCartesian geo_converter;
 	bool initENU = false;
-
-	RollingStdDev rstd_twist_linVel_x(1000);
-	RollingStdDev rstd_twist_linVel_y(1000); 
-	RollingStdDev rstd_twist_linVel_z(1000); 
-	RollingStdDev rstd_twist_angVel_x(1000); 
-	RollingStdDev rstd_twist_angVel_y(1000); 
-	RollingStdDev rstd_twist_angVel_z(1000); 
-
-	RollingStdDev rstd_pose_pos_x(1000);
-	RollingStdDev rstd_pose_pos_y(1000); 
-	RollingStdDev rstd_pose_pos_z(1000); 
-	RollingStdDev rstd_pose_ang_x(1000); 
-	RollingStdDev rstd_pose_ang_y(1000); 
-	RollingStdDev rstd_pose_ang_z(1000);
 
     // Define the specific value to match
     const char* specific_value = "--ros-args";
@@ -213,6 +200,10 @@ int main(int argc, char * argv[])
 	auto filter_status_pub = node->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/FilterStatus", 10);
 	auto gnss_fix_type_pub = node->create_publisher<std_msgs::msg::String>("/GNSSFixType", 10);
 	auto nav_odom_pub = node->create_publisher<nav_msgs::msg::Odometry>("/NavOdom", 10);
+	auto nav_path_pub = node->create_publisher<nav_msgs::msg::Path>("/NavPath", 10);
+
+	nav_msgs::msg::Path path_msg;
+
 	rclcpp::Rate loop_rate(10);
 
 	// IMU sensor_msgs/Imu
@@ -445,10 +436,10 @@ int main(int argc, char * argv[])
 						twist_msg.angular.y=system_state_packet.angular_velocity[1];
 						twist_msg.angular.z=system_state_packet.angular_velocity[2];
 
-						// NNAV ODOM
+						// NAV ODOM
 						odom_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
 						odom_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
-						odom_msg.child_frame_id = "";
+						odom_msg.child_frame_id = "imu_link";
  
 						// Report in ENU instead of NED
 						odom_msg.twist.twist.linear.x = system_state_packet.velocity[1];
@@ -458,24 +449,8 @@ int main(int argc, char * argv[])
 						odom_msg.twist.twist.angular.y = system_state_packet.angular_velocity[0];
 						odom_msg.twist.twist.angular.z = -system_state_packet.angular_velocity[2];
 
-						rstd_twist_linVel_x.add_value(odom_msg.twist.twist.linear.x);
-						rstd_twist_linVel_y.add_value(odom_msg.twist.twist.linear.y); 
-						rstd_twist_linVel_z.add_value(odom_msg.twist.twist.linear.z); 
-						rstd_twist_angVel_x.add_value(odom_msg.twist.twist.angular.x); 
-						rstd_twist_angVel_y.add_value(odom_msg.twist.twist.angular.y); 
-						rstd_twist_angVel_z.add_value(odom_msg.twist.twist.angular.z); 
-
-						odom_msg.twist.covariance[0]  = pow(rstd_twist_linVel_x.standard_deviation(), 2.0f);
-						odom_msg.twist.covariance[7]  = pow(rstd_twist_linVel_y.standard_deviation(), 2.0f);
-						odom_msg.twist.covariance[14] = pow(rstd_twist_linVel_z.standard_deviation(), 2.0f);
-						odom_msg.twist.covariance[21] = pow(rstd_twist_angVel_x.standard_deviation(), 2.0f);
-						odom_msg.twist.covariance[28] = pow(rstd_twist_angVel_y.standard_deviation(), 2.0f);
-						odom_msg.twist.covariance[35] = pow(rstd_twist_angVel_z.standard_deviation(), 2.0f);
-
-
-						// Nav Odom	NEEDS WORK
-						double x, y, z;
 						// LLA->ENU, better accuacy than gpsTools especially for z value
+						double x, y, z;
 						Eigen::Vector3d lla(nav_sat_fix_msg.latitude, nav_sat_fix_msg.longitude, nav_sat_fix_msg.altitude);
 
 						if (!initENU) 
@@ -494,29 +469,35 @@ int main(int argc, char * argv[])
 						odom_msg.pose.pose.position.y = enu(1);
 						odom_msg.pose.pose.position.z = enu(2);
 
-						tf2::Quaternion q;
-						q.setRPY(0, 0, 2*PI - system_state_packet.orientation[2]);
+						tf2::Quaternion yawQuat;
+						yawQuat.setRPY(0, 0, 2*PI - system_state_packet.orientation[2]);
 
 						//std::cout << "INS RPY: " << system_state_packet.orientation[0] << ", " <<  system_state_packet.orientation[1] << ", " << 2*PI - system_state_packet.orientation[2] << std::endl;
 
-						odom_msg.pose.pose.orientation.x = q.getAxis().getX();
-						odom_msg.pose.pose.orientation.y = q.getAxis().getY();
-						odom_msg.pose.pose.orientation.z = q.getAxis().getZ();
-						odom_msg.pose.pose.orientation.w = q.getW();
+						odom_msg.pose.pose.orientation.x = yawQuat.getAxis().getX();
+						odom_msg.pose.pose.orientation.y = yawQuat.getAxis().getY();
+						odom_msg.pose.pose.orientation.z = yawQuat.getAxis().getZ();
+						odom_msg.pose.pose.orientation.w = yawQuat.getW();
 
-						rstd_pose_pos_x.add_value(odom_msg.pose.pose.position.x);
-						rstd_pose_pos_y.add_value(odom_msg.pose.pose.position.y);
-						rstd_pose_pos_z.add_value(odom_msg.pose.pose.position.z);
-						rstd_pose_ang_x.add_value(0.0f);
-						rstd_pose_ang_y.add_value(0.0f);
-						rstd_pose_ang_z.add_value(2*PI - system_state_packet.orientation[2]);
+						odom_msg.pose.covariance[0]  = pow(system_state_packet.standard_deviation[0], 2.0f);
+						odom_msg.pose.covariance[7]  = pow(system_state_packet.standard_deviation[1], 2.0f);
+						odom_msg.pose.covariance[14] = pow(system_state_packet.standard_deviation[2], 2.0f);
 
-						odom_msg.pose.covariance[0]  = pow(rstd_pose_pos_x.standard_deviation(), 2.0f);
-						odom_msg.pose.covariance[7]  = pow(rstd_pose_pos_y.standard_deviation(), 2.0f);
-						odom_msg.pose.covariance[14] = pow(rstd_pose_pos_z.standard_deviation(), 2.0f);
-						odom_msg.pose.covariance[21] = pow(rstd_pose_ang_x.standard_deviation(), 2.0f);
-						odom_msg.pose.covariance[28] = pow(rstd_pose_ang_y.standard_deviation(), 2.0f);
-						odom_msg.pose.covariance[35] = pow(rstd_pose_ang_z.standard_deviation(), 2.0f);
+						// NAV PATH
+						// publish path
+						path_msg.header.frame_id = "odom";
+						path_msg.header.stamp = odom_msg.header.stamp;
+
+						geometry_msgs::msg::PoseStamped pose;
+						pose.header = path_msg.header;
+						pose.pose.position.x = enu(0);
+						pose.pose.position.y = enu(1);
+						pose.pose.position.z = enu(2);
+						pose.pose.orientation.x = yawQuat.getAxis().getX();
+						pose.pose.orientation.y = yawQuat.getAxis().getY();
+						pose.pose.orientation.z = yawQuat.getAxis().getZ();
+						pose.pose.orientation.w = yawQuat.getW();
+						path_msg.poses.push_back(pose);
 
 						// IMU
 						imu_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
@@ -798,6 +779,7 @@ int main(int argc, char * argv[])
 				pose_pub->publish(pose_msg);
 				gnss_fix_type_pub->publish(gnss_fix_type_msgs);
 				nav_odom_pub->publish(odom_msg);
+				nav_path_pub->publish(path_msg);
 			}
 			
 			// Write the logs to the logger reset when counter is full
