@@ -488,21 +488,40 @@ int main(int argc, char * argv[])
 						Eigen::Vector3d enu(x, y, z);
 
 						// std::cout << "GPS ENU: " << std::endl; 
-						// std::cout << "x: " << enu(0) << "\ny: " << enu(1) << "\nz: " << enu(2) << std::endl;
+						// std::cout << "x: " << enu(0) << "\ny: " << enu(1) << "\nz: " << enu(2) << std::endl
 
-						odom_msg.pose.pose.position.x = enu(0);
-						odom_msg.pose.pose.position.y = enu(1);
-						odom_msg.pose.pose.position.z = enu(2);
+						if(USE_ENU)
+						{
+							odom_msg.pose.pose.position.x = enu(0);
+							odom_msg.pose.pose.position.y = enu(1);
+							odom_msg.pose.pose.position.z = enu(2);
+						}
+						else // NED
+						{
+							odom_msg.pose.pose.position.x = enu(1);
+							odom_msg.pose.pose.position.y = enu(0);
+							odom_msg.pose.pose.position.z = -enu(2);
+						}
 
-						tf2::Quaternion yawQuat;
-						yawQuat.setRPY(0, 0, 2*PI - system_state_packet.orientation[2]);
+						tf2::Quaternion headingQuat;
+						if(USE_ENU)
+						{
+							float enuHeading = ((2*M_PI - raw_gnss_packet.heading) + M_PI_2);
+							if(enuHeading > 2*M_PI)
+							{
+								enuHeading -= 2*M_PI;
+							}
+							headingQuat.setRPY(0, 0, enuHeading);
+						}
+						else // NED
+						{
+							headingQuat.setRPY(0, 0, raw_gnss_packet.heading);
+						}
 
-						//std::cout << "INS RPY: " << system_state_packet.orientation[0] << ", " <<  system_state_packet.orientation[1] << ", " << 2*PI - system_state_packet.orientation[2] << std::endl;
-
-						odom_msg.pose.pose.orientation.x = yawQuat.getAxis().getX();
-						odom_msg.pose.pose.orientation.y = yawQuat.getAxis().getY();
-						odom_msg.pose.pose.orientation.z = yawQuat.getAxis().getZ();
-						odom_msg.pose.pose.orientation.w = yawQuat.getW();
+						odom_msg.pose.pose.orientation.x = headingQuat.getAxis().getX();
+						odom_msg.pose.pose.orientation.y = headingQuat.getAxis().getY();
+						odom_msg.pose.pose.orientation.z = headingQuat.getAxis().getZ();
+						odom_msg.pose.pose.orientation.w = headingQuat.getW();
 
 						odom_msg.pose.covariance[0]  = pow(system_state_packet.standard_deviation[0], 2.0f);
 						odom_msg.pose.covariance[7]  = pow(system_state_packet.standard_deviation[1], 2.0f);
@@ -840,30 +859,30 @@ int main(int argc, char * argv[])
 				// Ensure that you free the an_packet when your done with it or you will leak memory                                  
 				an_packet_free(&an_packet);
 
-				std::cout << "ANG VEL: " << std::endl;
-				std::cout << "x: " << imu_msg.angular_velocity.x << "\ny: " << imu_msg.angular_velocity.y << "\nz: " << imu_msg.angular_velocity.z << std::endl;
-				std::cout << "LIN ACC: " << std::endl;
-				std::cout << "x: " << imu_msg.linear_acceleration.x << "\ny: " << imu_msg.linear_acceleration.y << "\nz: " << imu_msg.linear_acceleration.z << std::endl;
+				// std::cout << "ANG VEL: " << std::endl;
+				// std::cout << "x: " << imu_msg.angular_velocity.x << "\ny: " << imu_msg.angular_velocity.y << "\nz: " << imu_msg.angular_velocity.z << std::endl;
+				// std::cout << "LIN ACC: " << std::endl;
+				// std::cout << "x: " << imu_msg.linear_acceleration.x << "\ny: " << imu_msg.linear_acceleration.y << "\nz: " << imu_msg.linear_acceleration.z << std::endl;
 				
-				double imuRoll, imuPitch, imuYaw;
-				tf2::Quaternion orient(imu_msg.orientation.x, imu_msg.orientation.y, imu_msg.orientation.z, imu_msg.orientation.w);
-				tf2::Matrix3x3(orient).getRPY(imuRoll, imuPitch, imuYaw);
-				std::cout << "RPY: " << std::endl;
-				std::cout << "roll: " << imuRoll*180.0f/M_PI << "\npitch: " << imuPitch*180.0f/M_PI << "\nyaw: " << imuYaw*180.0f/M_PI << std::endl;
+				// double imuRoll, imuPitch, imuYaw;
+				// tf2::Quaternion orient(imu_msg.orientation.x, imu_msg.orientation.y, imu_msg.orientation.z, imu_msg.orientation.w);
+				// tf2::Matrix3x3(orient).getRPY(imuRoll, imuPitch, imuYaw);
+				// std::cout << "RPY: " << std::endl;
+				// std::cout << "roll: " << imuRoll*180.0f/M_PI << "\npitch: " << imuPitch*180.0f/M_PI << "\nyaw: " << imuYaw*180.0f/M_PI << std::endl;
 
-				// std::cout << "POSE POS: " << std::endl;
-				// std::cout << "x: " << pose_msg.position.x << "\ny: " << pose_msg.position.y << "\nz: " << pose_msg.position.z << std::endl;
-				// std::cout << "ODOM POS: " << std::endl;
-				// std::cout << "x: " << odom_msg.pose.pose.position.x << "\ny: " << odom_msg.pose.pose.position.y << "\nz: " << odom_msg.pose.pose.position.z << std::endl;
+				std::cout << "POSE MSG (ECEF) POS: " << std::endl;
+				std::cout << "x: " << pose_msg.position.x << "\ny: " << pose_msg.position.y << "\nz: " << pose_msg.position.z << std::endl;
+				std::cout << "ODOM MSG POS: " << std::endl;
+				std::cout << "x: " << odom_msg.pose.pose.position.x << "\ny: " << odom_msg.pose.pose.position.y << "\nz: " << odom_msg.pose.pose.position.z << std::endl;
 
-				// std::cout << "GNSS POS: " << std::endl;
-				// std::cout << "x: " << raw_gnss_packet.position[0] << "\ny: " << raw_gnss_packet.position[1] << "\nz: " << raw_gnss_packet.position[2] << std::endl;
-				// std::cout << "GNSS POS STD: " << std::endl;
-				// std::cout << "x: " << raw_gnss_packet.position_standard_deviation[0] << "\ny: " << raw_gnss_packet.position_standard_deviation[1] << "\nz: " << raw_gnss_packet.position_standard_deviation[2] << std::endl;
-				// std::cout << "GNSS VEL: " << std::endl;
-				// std::cout << "x: " << raw_gnss_packet.velocity[0] << "\ny: " << raw_gnss_packet.velocity[1] << "\nz: " << raw_gnss_packet.velocity[2] << std::endl;
-				// std::cout << "GNSS Heading: " << std::endl;
-				// std::cout << "Heading: " << raw_gnss_packet.heading  << std::endl;
+				std::cout << "GNSS POS: " << std::endl;
+				std::cout << "x: " << raw_gnss_packet.position[0] << "\ny: " << raw_gnss_packet.position[1] << "\nz: " << raw_gnss_packet.position[2] << std::endl;
+				std::cout << "GNSS POS STD: " << std::endl;
+				std::cout << "x: " << raw_gnss_packet.position_standard_deviation[0] << "\ny: " << raw_gnss_packet.position_standard_deviation[1] << "\nz: " << raw_gnss_packet.position_standard_deviation[2] << std::endl;
+				std::cout << "GNSS VEL: " << std::endl;
+				std::cout << "x: " << raw_gnss_packet.velocity[0] << "\ny: " << raw_gnss_packet.velocity[1] << "\nz: " << raw_gnss_packet.velocity[2] << std::endl;
+				std::cout << "GNSS Heading: " << std::endl;
+				std::cout << "Heading: " << raw_gnss_packet.heading*180.0/M_PI  << std::endl;
 
 				// PUBLISH MESSAGES
 				nav_sat_fix_pub->publish(nav_sat_fix_msg);
