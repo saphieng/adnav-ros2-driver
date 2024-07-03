@@ -63,6 +63,9 @@
 #define RADIANS_TO_DEGREES (180.0/M_PI)
 const double PI = 4*atan(1);
 
+#define USE_FLU true
+#define USE_ENU true
+
 //RCLCPP_WARN(node->get_logger(), "WARNING MSG PRINT");
 //RCLCPP_INFO(node->get_logger(), "INFORMATION MSG PRINT");
 //RCLCPP_ERROR(node->get_logger(), "ERROR MSG PRINT");
@@ -357,7 +360,16 @@ int main(int argc, char * argv[])
 
 			// Decode all the packets in the buffer 
 			while ((an_packet = an_packet_decode(&an_decoder)) != NULL)
-			{				
+			{	
+				// Raw GNSS Packet Decoding
+				if(an_packet->id == packet_id_raw_gnss)
+				{
+					if(decode_raw_gnss_packet(&raw_gnss_packet, an_packet) == 0)
+					{
+
+					}
+				}
+
 				// System State Packet Decoding
 				if (an_packet->id == packet_id_system_state)
 				{
@@ -419,9 +431,9 @@ int main(int argc, char * argv[])
 						{
 							nav_sat_fix_msg.status.status=-1;
 						}
-						nav_sat_fix_msg.latitude=system_state_packet.latitude * RADIANS_TO_DEGREES;
-						nav_sat_fix_msg.longitude=system_state_packet.longitude * RADIANS_TO_DEGREES;
-						nav_sat_fix_msg.altitude=system_state_packet.height;
+						nav_sat_fix_msg.latitude = system_state_packet.latitude * RADIANS_TO_DEGREES;
+						nav_sat_fix_msg.longitude = system_state_packet.longitude * RADIANS_TO_DEGREES;
+						nav_sat_fix_msg.altitude = system_state_packet.height;
 
 						nav_sat_fix_msg.position_covariance =
 							{	pow(system_state_packet.standard_deviation[1],2), 0.0, 0.0,
@@ -429,12 +441,24 @@ int main(int argc, char * argv[])
 								0.0, 0.0, pow(system_state_packet.standard_deviation[2],2)};						
 
 						// TWIST
-						twist_msg.linear.x=system_state_packet.velocity[0];
-						twist_msg.linear.y=system_state_packet.velocity[1];
-						twist_msg.linear.z=system_state_packet.velocity[2];
-						twist_msg.angular.x=system_state_packet.angular_velocity[0];
-						twist_msg.angular.y=system_state_packet.angular_velocity[1];
-						twist_msg.angular.z=system_state_packet.angular_velocity[2];
+						if(!USE_FLU)
+						{
+							twist_msg.linear.x = system_state_packet.velocity[0];
+							twist_msg.linear.y = system_state_packet.velocity[1];
+							twist_msg.linear.z = system_state_packet.velocity[2];
+							twist_msg.angular.x = system_state_packet.angular_velocity[0];
+							twist_msg.angular.y = system_state_packet.angular_velocity[1];
+							twist_msg.angular.z = system_state_packet.angular_velocity[2];
+						}
+						else 
+						{
+							twist_msg.linear.x = system_state_packet.velocity[0];
+							twist_msg.linear.y = -system_state_packet.velocity[1];
+							twist_msg.linear.z = -system_state_packet.velocity[2];
+							twist_msg.angular.x = system_state_packet.angular_velocity[0];
+							twist_msg.angular.y = -system_state_packet.angular_velocity[1];
+							twist_msg.angular.z = -system_state_packet.angular_velocity[2];
+						}
 
 						// NAV ODOM
 						odom_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
@@ -463,7 +487,8 @@ int main(int argc, char * argv[])
 						geo_converter.Forward(lla(0), lla(1), lla(2), x, y, z);
 						Eigen::Vector3d enu(x, y, z);
 
-						// std::cout << "GPS ENU: " << enu(0) << ", " <<  enu(1) << ", " << enu(2) << std::endl; 
+						// std::cout << "GPS ENU: " << std::endl; 
+						// std::cout << "x: " << enu(0) << "\ny: " << enu(1) << "\nz: " << enu(2) << std::endl;
 
 						odom_msg.pose.pose.position.x = enu(0);
 						odom_msg.pose.pose.position.y = enu(1);
@@ -488,29 +513,40 @@ int main(int argc, char * argv[])
 						path_msg.header.frame_id = "odom";
 						path_msg.header.stamp = odom_msg.header.stamp;
 
-						geometry_msgs::msg::PoseStamped pose;
-						pose.header = path_msg.header;
-						pose.pose.position.x = enu(0);
-						pose.pose.position.y = enu(1);
-						pose.pose.position.z = enu(2);
-						pose.pose.orientation.x = yawQuat.getAxis().getX();
-						pose.pose.orientation.y = yawQuat.getAxis().getY();
-						pose.pose.orientation.z = yawQuat.getAxis().getZ();
-						pose.pose.orientation.w = yawQuat.getW();
-						path_msg.poses.push_back(pose);
+						geometry_msgs::msg::PoseStamped path_pose;
+						path_pose.header = path_msg.header;
+						path_pose.pose.position.x = odom_msg.pose.pose.position.x;
+						path_pose.pose.position.y = odom_msg.pose.pose.position.y;
+						path_pose.pose.position.z = odom_msg.pose.pose.position.z;
+						path_pose.pose.orientation.x = odom_msg.pose.pose.orientation.x;
+						path_pose.pose.orientation.y = odom_msg.pose.pose.orientation.y;
+						path_pose.pose.orientation.z = odom_msg.pose.pose.orientation.z;
+						path_pose.pose.orientation.w = odom_msg.pose.pose.orientation.w;
+						path_msg.poses.push_back(path_pose);
 
 						// IMU
 						imu_msg.header.stamp.sec=system_state_packet.unix_time_seconds;
 						imu_msg.header.stamp.nanosec=system_state_packet.microseconds*1000;
 
 						// Using the RPY orientation as done by cosama
-						orientation.setRPY(
-							system_state_packet.orientation[0],
-							system_state_packet.orientation[1],
-							system_state_packet.orientation[2]
-						);
+						if(!USE_FLU)
+						{
+							orientation.setRPY(
+								system_state_packet.orientation[0],
+								system_state_packet.orientation[1],
+								system_state_packet.orientation[2]
+							);
+						}
+						else 
+						{
+							orientation.setRPY(
+								system_state_packet.orientation[0],
+								-system_state_packet.orientation[1],
+								-system_state_packet.orientation[2]
+							);
+						}
 
-        				// double imuRoll, imuPitch, imuYaw;
+        				// // double imuRoll, imuPitch, imuYaw;
 						// tf2::Matrix3x3(orientation).getRPY(imuRoll, imuPitch, imuYaw);
 						// std::cout << "IMU roll pitch yaw: " << std::endl;
 						// std::cout << "roll: " << imuRoll*180.0f/M_PI << "\npitch: " << imuPitch*180.0f/M_PI << "\nyaw: " << imuYaw*180.0f/M_PI << std::endl << std::endl;
@@ -710,9 +746,18 @@ int main(int argc, char * argv[])
 					if(decode_quaternion_orientation_standard_deviation_packet(&quaternion_orientation_standard_deviation_packet, an_packet) == 0)
 					{
 						// IMU
-						imu_msg.orientation_covariance[0] = quaternion_orientation_standard_deviation_packet.standard_deviation[0];
-						imu_msg.orientation_covariance[4] = quaternion_orientation_standard_deviation_packet.standard_deviation[1];
-						imu_msg.orientation_covariance[8] = quaternion_orientation_standard_deviation_packet.standard_deviation[2];
+						if(!USE_FLU)
+						{
+							imu_msg.orientation_covariance[0] = quaternion_orientation_standard_deviation_packet.standard_deviation[0];
+							imu_msg.orientation_covariance[4] = quaternion_orientation_standard_deviation_packet.standard_deviation[1];
+							imu_msg.orientation_covariance[8] = quaternion_orientation_standard_deviation_packet.standard_deviation[2];
+						}
+						else
+						{
+							imu_msg.orientation_covariance[0] = quaternion_orientation_standard_deviation_packet.standard_deviation[0];
+							imu_msg.orientation_covariance[4] = -quaternion_orientation_standard_deviation_packet.standard_deviation[1];
+							imu_msg.orientation_covariance[8] = -quaternion_orientation_standard_deviation_packet.standard_deviation[2];
+						}
 					}
 				}
 
@@ -730,28 +775,56 @@ int main(int argc, char * argv[])
 						temperature_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
 
 						// RAW MAGNETICFIELD VALUE FROM IMU
-						magnetic_field_msg.magnetic_field.x = raw_sensors_packet.magnetometers[0];
-						magnetic_field_msg.magnetic_field.y = raw_sensors_packet.magnetometers[1];
-						magnetic_field_msg.magnetic_field.z = raw_sensors_packet.magnetometers[2];
-			
-						imu_msg.angular_velocity.x=raw_sensors_packet.gyroscopes[0]; // These the same as the TWIST msg values
-						imu_msg.angular_velocity.y=raw_sensors_packet.gyroscopes[1];
-						imu_msg.angular_velocity.z=raw_sensors_packet.gyroscopes[2];
+						if(!USE_FLU)
+						{
+							magnetic_field_msg.magnetic_field.x = raw_sensors_packet.magnetometers[0];
+							magnetic_field_msg.magnetic_field.y = raw_sensors_packet.magnetometers[1];
+							magnetic_field_msg.magnetic_field.z = raw_sensors_packet.magnetometers[2];
+						}
+						else
+						{
+							magnetic_field_msg.magnetic_field.x = raw_sensors_packet.magnetometers[0];
+							magnetic_field_msg.magnetic_field.y = -raw_sensors_packet.magnetometers[1];
+							magnetic_field_msg.magnetic_field.z = -raw_sensors_packet.magnetometers[2];
+						}
 
-						rstd_gyr_x.add_value(raw_sensors_packet.gyroscopes[0]);
-						rstd_gyr_y.add_value(raw_sensors_packet.gyroscopes[1]);
-						rstd_gyr_z.add_value(raw_sensors_packet.gyroscopes[2]);
+			
+						if(!USE_FLU)
+						{
+							imu_msg.angular_velocity.x = raw_sensors_packet.gyroscopes[0]; 
+							imu_msg.angular_velocity.y = raw_sensors_packet.gyroscopes[1];
+							imu_msg.angular_velocity.z = raw_sensors_packet.gyroscopes[2];
+						}
+						else
+						{
+							imu_msg.angular_velocity.x = raw_sensors_packet.gyroscopes[0];
+							imu_msg.angular_velocity.y = -raw_sensors_packet.gyroscopes[1];
+							imu_msg.angular_velocity.z = -raw_sensors_packet.gyroscopes[2];
+						}
+
+						rstd_gyr_x.add_value(imu_msg.angular_velocity.x);
+						rstd_gyr_y.add_value(imu_msg.angular_velocity.y);
+						rstd_gyr_z.add_value(imu_msg.angular_velocity.z);
 						
 						// std::cout << "STD Gryo: " << (rstd_gyr_x.standard_deviation() + rstd_gyr_y.standard_deviation() + rstd_gyr_z.standard_deviation())/3.0f << std::endl;
 						// std::cout << "x: " << rstd_gyr_x.standard_deviation() << "\ny: " << rstd_gyr_y.standard_deviation() << "\nz: " << rstd_gyr_z.standard_deviation() << std::endl << std::endl;
 
-						imu_msg.linear_acceleration.x = raw_sensors_packet.accelerometers[0];
-						imu_msg.linear_acceleration.y = raw_sensors_packet.accelerometers[1];
-						imu_msg.linear_acceleration.z = raw_sensors_packet.accelerometers[2];
+						if(!USE_FLU)
+						{
+							imu_msg.linear_acceleration.x = raw_sensors_packet.accelerometers[0];
+							imu_msg.linear_acceleration.y = raw_sensors_packet.accelerometers[1];
+							imu_msg.linear_acceleration.z = raw_sensors_packet.accelerometers[2];
+						}
+						else
+						{
+							imu_msg.linear_acceleration.x = raw_sensors_packet.accelerometers[0];
+							imu_msg.linear_acceleration.y = -raw_sensors_packet.accelerometers[1];
+							imu_msg.linear_acceleration.z = -raw_sensors_packet.accelerometers[2];
+						}
 
-						rstd_acc_x.add_value(raw_sensors_packet.accelerometers[0]);
-						rstd_acc_y.add_value(raw_sensors_packet.accelerometers[1]);
-						rstd_acc_z.add_value(raw_sensors_packet.accelerometers[2]);
+						rstd_acc_x.add_value(imu_msg.linear_acceleration.x);
+						rstd_acc_y.add_value(imu_msg.linear_acceleration.y);
+						rstd_acc_z.add_value(imu_msg.linear_acceleration.z);
 						
 						// std::cout << "STD Acc: " << (rstd_acc_x.standard_deviation() + rstd_acc_y.standard_deviation() + rstd_acc_z.standard_deviation())/3.0f << std::endl;
 						// std::cout << "x: " << rstd_acc_x.standard_deviation() << "\ny: " << rstd_acc_y.standard_deviation() << "\nz: " << rstd_acc_z.standard_deviation() << std::endl << std::endl;
@@ -766,6 +839,31 @@ int main(int argc, char * argv[])
 
 				// Ensure that you free the an_packet when your done with it or you will leak memory                                  
 				an_packet_free(&an_packet);
+
+				std::cout << "ANG VEL: " << std::endl;
+				std::cout << "x: " << imu_msg.angular_velocity.x << "\ny: " << imu_msg.angular_velocity.y << "\nz: " << imu_msg.angular_velocity.z << std::endl;
+				std::cout << "LIN ACC: " << std::endl;
+				std::cout << "x: " << imu_msg.linear_acceleration.x << "\ny: " << imu_msg.linear_acceleration.y << "\nz: " << imu_msg.linear_acceleration.z << std::endl;
+				
+				double imuRoll, imuPitch, imuYaw;
+				tf2::Quaternion orient(imu_msg.orientation.x, imu_msg.orientation.y, imu_msg.orientation.z, imu_msg.orientation.w);
+				tf2::Matrix3x3(orient).getRPY(imuRoll, imuPitch, imuYaw);
+				std::cout << "RPY: " << std::endl;
+				std::cout << "roll: " << imuRoll*180.0f/M_PI << "\npitch: " << imuPitch*180.0f/M_PI << "\nyaw: " << imuYaw*180.0f/M_PI << std::endl;
+
+				// std::cout << "POSE POS: " << std::endl;
+				// std::cout << "x: " << pose_msg.position.x << "\ny: " << pose_msg.position.y << "\nz: " << pose_msg.position.z << std::endl;
+				// std::cout << "ODOM POS: " << std::endl;
+				// std::cout << "x: " << odom_msg.pose.pose.position.x << "\ny: " << odom_msg.pose.pose.position.y << "\nz: " << odom_msg.pose.pose.position.z << std::endl;
+
+				// std::cout << "GNSS POS: " << std::endl;
+				// std::cout << "x: " << raw_gnss_packet.position[0] << "\ny: " << raw_gnss_packet.position[1] << "\nz: " << raw_gnss_packet.position[2] << std::endl;
+				// std::cout << "GNSS POS STD: " << std::endl;
+				// std::cout << "x: " << raw_gnss_packet.position_standard_deviation[0] << "\ny: " << raw_gnss_packet.position_standard_deviation[1] << "\nz: " << raw_gnss_packet.position_standard_deviation[2] << std::endl;
+				// std::cout << "GNSS VEL: " << std::endl;
+				// std::cout << "x: " << raw_gnss_packet.velocity[0] << "\ny: " << raw_gnss_packet.velocity[1] << "\nz: " << raw_gnss_packet.velocity[2] << std::endl;
+				// std::cout << "GNSS Heading: " << std::endl;
+				// std::cout << "Heading: " << raw_gnss_packet.heading  << std::endl;
 
 				// PUBLISH MESSAGES
 				nav_sat_fix_pub->publish(nav_sat_fix_msg);
