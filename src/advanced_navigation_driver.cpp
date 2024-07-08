@@ -65,6 +65,7 @@ const double PI = 4*atan(1);
 
 #define USE_FLU true
 #define USE_ENU true
+#define MAG_DEC 0.22008602
 
 //RCLCPP_WARN(node->get_logger(), "WARNING MSG PRINT");
 //RCLCPP_INFO(node->get_logger(), "INFORMATION MSG PRINT");
@@ -206,6 +207,7 @@ int main(int argc, char * argv[])
 	auto nav_path_pub = node->create_publisher<nav_msgs::msg::Path>("/NavPath", 10);
 
 	nav_msgs::msg::Path path_msg;
+	int path_pose_count = 1000;
 
 	rclcpp::Rate loop_rate(10);
 
@@ -290,8 +292,8 @@ int main(int argc, char * argv[])
 	nav_msgs::msg::Odometry odom_msg;
 	odom_msg.header.stamp.sec = 0;
 	odom_msg.header.stamp.nanosec = 0;
-	odom_msg.header.frame_id = "navodom";
-	odom_msg.child_frame_id = "imu_link";
+	odom_msg.header.frame_id = "odom";
+	odom_msg.child_frame_id = "gps";
 	odom_msg.pose.pose = pose_msg;
 	std::copy(std::begin(cov), std::end(cov), std::begin(odom_msg.pose.covariance));
 	odom_msg.twist.twist = twist_msg;
@@ -463,15 +465,27 @@ int main(int argc, char * argv[])
 						// NAV ODOM
 						odom_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
 						odom_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
-						odom_msg.child_frame_id = "imu_link";
- 
+
 						// Report in ENU instead of NED
-						odom_msg.twist.twist.linear.x = system_state_packet.velocity[1];
-						odom_msg.twist.twist.linear.y = system_state_packet.velocity[0];
-						odom_msg.twist.twist.linear.z = -system_state_packet.velocity[2];
-						odom_msg.twist.twist.angular.x = system_state_packet.angular_velocity[1];
-						odom_msg.twist.twist.angular.y = system_state_packet.angular_velocity[0];
-						odom_msg.twist.twist.angular.z = -system_state_packet.angular_velocity[2];
+						// Not sure if this is correct
+						// if(USE_ENU)
+						// {
+						// 	odom_msg.twist.twist.linear.x = system_state_packet.velocity[1];
+						// 	odom_msg.twist.twist.linear.y = system_state_packet.velocity[0];
+						// 	odom_msg.twist.twist.linear.z = -system_state_packet.velocity[2];
+						// 	odom_msg.twist.twist.angular.x = system_state_packet.angular_velocity[1];
+						// 	odom_msg.twist.twist.angular.y = system_state_packet.angular_velocity[0];
+						// 	odom_msg.twist.twist.angular.z = -system_state_packet.angular_velocity[2];
+						// }
+						// else
+						// {
+						// 	odom_msg.twist.twist.linear.x = system_state_packet.velocity[0];
+						// 	odom_msg.twist.twist.linear.y = system_state_packet.velocity[1];
+						// 	odom_msg.twist.twist.linear.z = system_state_packet.velocity[2];
+						// 	odom_msg.twist.twist.angular.x = system_state_packet.angular_velocity[0];
+						// 	odom_msg.twist.twist.angular.y = system_state_packet.angular_velocity[1];
+						// 	odom_msg.twist.twist.angular.z = system_state_packet.angular_velocity[2];
+						// }
 
 						// LLA->ENU, better accuacy than gpsTools especially for z value
 						double x, y, z;
@@ -506,7 +520,7 @@ int main(int argc, char * argv[])
 						tf2::Quaternion headingQuat;
 						if(USE_ENU)
 						{
-							float enuHeading = ((2*M_PI - raw_gnss_packet.heading) + M_PI_2);
+							float enuHeading = ((2*M_PI - raw_gnss_packet.heading) + M_PI_2) + MAG_DEC;
 							if(enuHeading > 2*M_PI)
 							{
 								enuHeading -= 2*M_PI;
@@ -515,7 +529,7 @@ int main(int argc, char * argv[])
 						}
 						else // NED
 						{
-							headingQuat.setRPY(0, 0, raw_gnss_packet.heading);
+							headingQuat.setRPY(0, 0, raw_gnss_packet.heading + MAG_DEC);
 						}
 
 						odom_msg.pose.pose.orientation.x = headingQuat.getAxis().getX();
@@ -529,7 +543,7 @@ int main(int argc, char * argv[])
 
 						// NAV PATH
 						// publish path
-						path_msg.header.frame_id = "odom";
+						path_msg.header.frame_id = odom_msg.header.frame_id;
 						path_msg.header.stamp = odom_msg.header.stamp;
 
 						geometry_msgs::msg::PoseStamped path_pose;
@@ -541,6 +555,11 @@ int main(int argc, char * argv[])
 						path_pose.pose.orientation.y = odom_msg.pose.pose.orientation.y;
 						path_pose.pose.orientation.z = odom_msg.pose.pose.orientation.z;
 						path_pose.pose.orientation.w = odom_msg.pose.pose.orientation.w;
+
+						if(path_msg.poses.size() >= path_pose_count)
+						{
+							path_msg.poses.erase(path_msg.poses.begin());
+						}
 						path_msg.poses.push_back(path_pose);
 
 						// IMU
@@ -553,15 +572,22 @@ int main(int argc, char * argv[])
 							orientation.setRPY(
 								system_state_packet.orientation[0],
 								system_state_packet.orientation[1],
-								system_state_packet.orientation[2]
+								system_state_packet.orientation[2] + MAG_DEC
 							);
 						}
 						else 
 						{
+
+							float yaw = -system_state_packet.orientation[2] + M_PI_2 + MAG_DEC;
+
+							if(yaw > M_PI) {
+								yaw -= M_PI;
+							}
+
 							orientation.setRPY(
 								system_state_packet.orientation[0],
 								-system_state_packet.orientation[1],
-								-system_state_packet.orientation[2]
+								yaw
 							);
 						}
 
@@ -870,19 +896,19 @@ int main(int argc, char * argv[])
 				// std::cout << "RPY: " << std::endl;
 				// std::cout << "roll: " << imuRoll*180.0f/M_PI << "\npitch: " << imuPitch*180.0f/M_PI << "\nyaw: " << imuYaw*180.0f/M_PI << std::endl;
 
-				std::cout << "POSE MSG (ECEF) POS: " << std::endl;
-				std::cout << "x: " << pose_msg.position.x << "\ny: " << pose_msg.position.y << "\nz: " << pose_msg.position.z << std::endl;
-				std::cout << "ODOM MSG POS: " << std::endl;
-				std::cout << "x: " << odom_msg.pose.pose.position.x << "\ny: " << odom_msg.pose.pose.position.y << "\nz: " << odom_msg.pose.pose.position.z << std::endl;
+				// std::cout << "POSE MSG (ECEF) POS: " << std::endl;
+				// std::cout << "x: " << pose_msg.position.x << "\ny: " << pose_msg.position.y << "\nz: " << pose_msg.position.z << std::endl;
+				// std::cout << "ODOM MSG POS: " << std::endl;
+				// std::cout << "x: " << odom_msg.pose.pose.position.x << "\ny: " << odom_msg.pose.pose.position.y << "\nz: " << odom_msg.pose.pose.position.z << std::endl;
 
-				std::cout << "GNSS POS: " << std::endl;
-				std::cout << "x: " << raw_gnss_packet.position[0] << "\ny: " << raw_gnss_packet.position[1] << "\nz: " << raw_gnss_packet.position[2] << std::endl;
-				std::cout << "GNSS POS STD: " << std::endl;
-				std::cout << "x: " << raw_gnss_packet.position_standard_deviation[0] << "\ny: " << raw_gnss_packet.position_standard_deviation[1] << "\nz: " << raw_gnss_packet.position_standard_deviation[2] << std::endl;
-				std::cout << "GNSS VEL: " << std::endl;
-				std::cout << "x: " << raw_gnss_packet.velocity[0] << "\ny: " << raw_gnss_packet.velocity[1] << "\nz: " << raw_gnss_packet.velocity[2] << std::endl;
-				std::cout << "GNSS Heading: " << std::endl;
-				std::cout << "Heading: " << raw_gnss_packet.heading*180.0/M_PI  << std::endl;
+				// std::cout << "GNSS POS: " << std::endl;
+				// std::cout << "x: " << raw_gnss_packet.position[0] << "\ny: " << raw_gnss_packet.position[1] << "\nz: " << raw_gnss_packet.position[2] << std::endl;
+				// std::cout << "GNSS POS STD: " << std::endl;
+				// std::cout << "x: " << raw_gnss_packet.position_standard_deviation[0] << "\ny: " << raw_gnss_packet.position_standard_deviation[1] << "\nz: " << raw_gnss_packet.position_standard_deviation[2] << std::endl;
+				// std::cout << "GNSS VEL: " << std::endl;
+				// std::cout << "x: " << raw_gnss_packet.velocity[0] << "\ny: " << raw_gnss_packet.velocity[1] << "\nz: " << raw_gnss_packet.velocity[2] << std::endl;
+				// std::cout << "GNSS Heading: " << std::endl;
+				// std::cout << "Heading: " << raw_gnss_packet.heading*180.0/M_PI  << std::endl;
 
 				// PUBLISH MESSAGES
 				nav_sat_fix_pub->publish(nav_sat_fix_msg);
