@@ -195,6 +195,7 @@ int main(int argc, char * argv[])
 	// Creating the ROS2 Publishers
 	auto imu_pub = node->create_publisher<sensor_msgs::msg::Imu>("/Imu", 10);
 	auto nav_sat_fix_pub = node->create_publisher<sensor_msgs::msg::NavSatFix>("/NavSatFix", 10);
+	auto nav_sat_origin_pub = ode->create_publisher<sensor_msgs::msg::NavSatFix>("/NavSatOrigin", 10);
 	auto magnetic_field_pub = node->create_publisher<sensor_msgs::msg::MagneticField>("/MagneticField", 10);
 	auto barometric_pressure_pub = node->create_publisher<sensor_msgs::msg::FluidPressure>("/BarometricPressure", 10);
 	auto temperature_pub = node->create_publisher<sensor_msgs::msg::Temperature>("/Temperature", 10);
@@ -243,6 +244,9 @@ int main(int argc, char * argv[])
 	nav_sat_fix_msg.position_covariance = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
 	nav_sat_fix_msg.position_covariance_type = 2; // fixed to variance on the diagonal
 
+	sensor_msgs::msg::NavSatFix nav_sat_origin_msg;
+	std::copy(std::begin(nav_sat_fix_msg), std::end(nav_sat_fix_msg), std::begin(nav_sat_origin_msg));
+	
   	// MagneticField geometry_msg/magnetic_field
 	sensor_msgs::msg::MagneticField magnetic_field_msg;
 	magnetic_field_msg.magnetic_field.x = 0;
@@ -495,6 +499,11 @@ int main(int argc, char * argv[])
 						{
 							std::cout << "INIT GPS Geo Converter: " << lla(0) << ", " <<  lla(1) << ", " << lla(2) << std::endl; 
 							geo_converter.Reset(lla(0), lla(1), lla(2));
+
+							nav_sat_origin_msg.latitude = lla(0);
+							nav_sat_origin_msg.longitude = lla(1);
+							nav_sat_origin_msg.altitude = lla(2);
+
 							initENU = true;
 						}
 
@@ -502,7 +511,7 @@ int main(int argc, char * argv[])
 						Eigen::Vector3d enu(x, y, z);
 
 						// std::cout << "GPS ENU: " << std::endl; 
-						// std::cout << "x: " << enu(0) << "\ny: " << enu(1) << "\nz: " << enu(2) << std::endl
+						// std::cout << "x: " << enu(0) << "\ny: " << enu(1) << "\nz: " << enu(2) << std::end
 
 						if(USE_ENU)
 						{
@@ -912,6 +921,7 @@ int main(int argc, char * argv[])
 
 				// PUBLISH MESSAGES
 				nav_sat_fix_pub->publish(nav_sat_fix_msg);
+				nav_sat_origin_pub->publish(nav_sat_origin_msg);
 				twist_pub->publish(twist_msg);
 				imu_pub->publish(imu_msg);
 				system_status_pub->publish(system_status_msg);
