@@ -195,7 +195,7 @@ int main(int argc, char * argv[])
 	// Creating the ROS2 Publishers
 	auto imu_pub = node->create_publisher<sensor_msgs::msg::Imu>("/Imu", 10);
 	auto nav_sat_fix_pub = node->create_publisher<sensor_msgs::msg::NavSatFix>("/NavSatFix", 10);
-	auto nav_sat_origin_pub = ode->create_publisher<sensor_msgs::msg::NavSatFix>("/NavSatOrigin", 10);
+	auto nav_sat_origin_pub = node->create_publisher<sensor_msgs::msg::NavSatFix>("/NavSatOrigin", 10);
 	auto magnetic_field_pub = node->create_publisher<sensor_msgs::msg::MagneticField>("/MagneticField", 10);
 	auto barometric_pressure_pub = node->create_publisher<sensor_msgs::msg::FluidPressure>("/BarometricPressure", 10);
 	auto temperature_pub = node->create_publisher<sensor_msgs::msg::Temperature>("/Temperature", 10);
@@ -225,11 +225,15 @@ int main(int argc, char * argv[])
 	imu_msg.angular_velocity.x = 0.0;
 	imu_msg.angular_velocity.y = 0.0;
 	imu_msg.angular_velocity.z = 0.0;
-	imu_msg.angular_velocity_covariance = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}; // fixed
+	imu_msg.angular_velocity_covariance = {	pow(0.0014, 2.0f), 0.0, 0.0,
+											0.0, pow(0.0014, 2.0f), 0.0, 
+											0.0, 0.0, pow(0.0014, 2.0f)}; // fixed
 	imu_msg.linear_acceleration.x = 0.0;
 	imu_msg.linear_acceleration.y = 0.0;
 	imu_msg.linear_acceleration.z = 0.0;
-	imu_msg.linear_acceleration_covariance = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}; // fixed
+	imu_msg.linear_acceleration_covariance = {	pow(0.002, 2.0f), 0.0, 0.0,
+												0.0, pow(0.002, 2.0f), 0.0,
+												0.0, 0.0, pow(0.002, 2.0f)}; // fixed
 
 	// NavSatFix sensor_msgs/NavSatFix 
 	sensor_msgs::msg::NavSatFix nav_sat_fix_msg;
@@ -245,7 +249,7 @@ int main(int argc, char * argv[])
 	nav_sat_fix_msg.position_covariance_type = 2; // fixed to variance on the diagonal
 
 	sensor_msgs::msg::NavSatFix nav_sat_origin_msg;
-	std::copy(std::begin(nav_sat_fix_msg), std::end(nav_sat_fix_msg), std::begin(nav_sat_origin_msg));
+	nav_sat_origin_msg = nav_sat_fix_msg;
 	
   	// MagneticField geometry_msg/magnetic_field
 	sensor_msgs::msg::MagneticField magnetic_field_msg;
@@ -470,27 +474,6 @@ int main(int argc, char * argv[])
 						odom_msg.header.stamp.sec = system_state_packet.unix_time_seconds;
 						odom_msg.header.stamp.nanosec = system_state_packet.microseconds*1000;
 
-						// Report in ENU instead of NED
-						// Not sure if this is correct
-						// if(USE_ENU)
-						// {
-						// 	odom_msg.twist.twist.linear.x = system_state_packet.velocity[1];
-						// 	odom_msg.twist.twist.linear.y = system_state_packet.velocity[0];
-						// 	odom_msg.twist.twist.linear.z = -system_state_packet.velocity[2];
-						// 	odom_msg.twist.twist.angular.x = system_state_packet.angular_velocity[1];
-						// 	odom_msg.twist.twist.angular.y = system_state_packet.angular_velocity[0];
-						// 	odom_msg.twist.twist.angular.z = -system_state_packet.angular_velocity[2];
-						// }
-						// else
-						// {
-						// 	odom_msg.twist.twist.linear.x = system_state_packet.velocity[0];
-						// 	odom_msg.twist.twist.linear.y = system_state_packet.velocity[1];
-						// 	odom_msg.twist.twist.linear.z = system_state_packet.velocity[2];
-						// 	odom_msg.twist.twist.angular.x = system_state_packet.angular_velocity[0];
-						// 	odom_msg.twist.twist.angular.y = system_state_packet.angular_velocity[1];
-						// 	odom_msg.twist.twist.angular.z = system_state_packet.angular_velocity[2];
-						// }
-
 						// LLA->ENU, better accuacy than gpsTools especially for z value
 						double x, y, z;
 						Eigen::Vector3d lla(nav_sat_fix_msg.latitude, nav_sat_fix_msg.longitude, nav_sat_fix_msg.altitude);
@@ -684,7 +667,7 @@ int main(int argc, char * argv[])
 							system_status_msg.message = system_status_msg.message + "15. Data Output Overflow Alarm! ";
 						}
 
-						// FILTER STATUS
+						// FILTER STATUS - this looks like it doesnt work, as each consecutive condition can overwrite the previous one...
 						filter_status_msg.message = "";
 						filter_status_msg.level = 0; // default OK state
 						if (system_state_packet.filter_status.b.orientation_filter_initialised) {
@@ -799,19 +782,13 @@ int main(int argc, char * argv[])
 					// this allows easy access to all the different values             
 					if(decode_quaternion_orientation_standard_deviation_packet(&quaternion_orientation_standard_deviation_packet, an_packet) == 0)
 					{
-						// IMU
-						if(!USE_FLU)
-						{
-							imu_msg.orientation_covariance[0] = quaternion_orientation_standard_deviation_packet.standard_deviation[0];
-							imu_msg.orientation_covariance[4] = quaternion_orientation_standard_deviation_packet.standard_deviation[1];
-							imu_msg.orientation_covariance[8] = quaternion_orientation_standard_deviation_packet.standard_deviation[2];
-						}
-						else
-						{
-							imu_msg.orientation_covariance[0] = quaternion_orientation_standard_deviation_packet.standard_deviation[0];
-							imu_msg.orientation_covariance[4] = -quaternion_orientation_standard_deviation_packet.standard_deviation[1];
-							imu_msg.orientation_covariance[8] = -quaternion_orientation_standard_deviation_packet.standard_deviation[2];
-						}
+						imu_msg.orientation_covariance[0] = pow(quaternion_orientation_standard_deviation_packet.standard_deviation[0], 2.0f);
+						imu_msg.orientation_covariance[4] = pow(quaternion_orientation_standard_deviation_packet.standard_deviation[1], 2.0f);
+						imu_msg.orientation_covariance[8] = pow(quaternion_orientation_standard_deviation_packet.standard_deviation[2], 2.0f);
+					
+						odom_msg.pose.covariance[21] = pow(quaternion_orientation_standard_deviation_packet.standard_deviation[0], 2.0f);
+						odom_msg.pose.covariance[28] = pow(quaternion_orientation_standard_deviation_packet.standard_deviation[1], 2.0f);
+						odom_msg.pose.covariance[35] = pow(quaternion_orientation_standard_deviation_packet.standard_deviation[2], 2.0f);
 					}
 				}
 
