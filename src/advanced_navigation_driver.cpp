@@ -193,19 +193,19 @@ int main(int argc, char * argv[])
 	}
   
 	// Creating the ROS2 Publishers
-	auto imu_pub = node->create_publisher<sensor_msgs::msg::Imu>("/Imu", 10);
-	auto nav_sat_fix_pub = node->create_publisher<sensor_msgs::msg::NavSatFix>("/NavSatFix", 10);
-	auto nav_sat_origin_pub = node->create_publisher<sensor_msgs::msg::NavSatFix>("/NavSatOrigin", 10);
-	auto magnetic_field_pub = node->create_publisher<sensor_msgs::msg::MagneticField>("/MagneticField", 10);
-	auto barometric_pressure_pub = node->create_publisher<sensor_msgs::msg::FluidPressure>("/BarometricPressure", 10);
-	auto temperature_pub = node->create_publisher<sensor_msgs::msg::Temperature>("/Temperature", 10);
-	auto twist_pub = node->create_publisher<geometry_msgs::msg::Twist>("/Twist", 10);
-	auto pose_pub = node->create_publisher<geometry_msgs::msg::Pose>("/Pose", 10);
-	auto system_status_pub = node->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/SystemStatus", 10);
-	auto filter_status_pub = node->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/FilterStatus", 10);
-	auto gnss_fix_type_pub = node->create_publisher<std_msgs::msg::String>("/GNSSFixType", 10);
-	auto nav_odom_pub = node->create_publisher<nav_msgs::msg::Odometry>("/NavOdom", 10);
-	auto nav_path_pub = node->create_publisher<nav_msgs::msg::Path>("/NavPath", 10);
+	auto imu_pub = node->create_publisher<sensor_msgs::msg::Imu>("/imu", 10);
+	auto nav_sat_fix_pub = node->create_publisher<sensor_msgs::msg::NavSatFix>("/gps/fix", 10);
+	auto nav_sat_origin_pub = node->create_publisher<sensor_msgs::msg::NavSatFix>("/gps/origin", 10);
+	auto magnetic_field_pub = node->create_publisher<sensor_msgs::msg::MagneticField>("/imu/mag", 10);
+	auto barometric_pressure_pub = node->create_publisher<sensor_msgs::msg::FluidPressure>("/imu/baro", 10);
+	auto temperature_pub = node->create_publisher<sensor_msgs::msg::Temperature>("/imu/temp", 10);
+	auto twist_pub = node->create_publisher<geometry_msgs::msg::Twist>("/imu/twist", 10);
+	auto pose_pub = node->create_publisher<geometry_msgs::msg::Pose>("/imu/pose", 10);
+	auto system_status_pub = node->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("/imu/systemStatus", 10);
+	auto filter_status_pub = node->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("imu/filterStatus", 10);
+	auto gnss_fix_type_pub = node->create_publisher<std_msgs::msg::String>("/gps/fixType", 10);
+	auto nav_odom_pub = node->create_publisher<nav_msgs::msg::Odometry>("/gps/odom", 10);
+	auto nav_path_pub = node->create_publisher<nav_msgs::msg::Path>("/gps/path", 10);
 
 	nav_msgs::msg::Path path_msg;
 	int path_pose_count = 1000;
