@@ -65,7 +65,7 @@ const double PI = 4*atan(1);
 
 #define USE_FLU true
 #define USE_ENU true
-#define MAG_DEC 0.22008602
+#define MAG_DEC 0.22008602 //zzCJ: Set to 0.0 after testing assuming the certus outputs true north... 
 
 //RCLCPP_WARN(node->get_logger(), "WARNING MSG PRINT");
 //RCLCPP_INFO(node->get_logger(), "INFORMATION MSG PRINT");
